@@ -1,0 +1,132 @@
+services:
+  # Banco de dados PostgreSQL para o Zabbix
+  postgres:
+    image: postgres:16-alpine3.21
+    container_name: zabbix-postgres
+    env_file:
+      - .env
+    volumes:
+      - postgres_16_data:/var/lib/postgresql/data
+    networks:
+      zabbix_network:
+        ipv4_address: 172.30.0.3
+    profiles:
+      - prod
+      - debug
+    deploy:
+      resources:
+        limits:
+          memory: 1G  # Limita a memória a 1 GB
+        reservations:
+          memory: 200M  # Reserva 200 MB de memória
+    cpu_shares: 512        # Limita o uso de CPU, 1024 é o valor padrão (100%)
+    cpu_quota: 50000 
+  # Zabbix Server
+  zabbix-server:
+    build:
+      context: ./Dockerfiles/zabbix-server/
+      args:
+        ORACLE_HOME: ${ORACLE_HOME}
+        LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}
+        TNS_ADMIN: ${TNS_ADMIN}
+    container_name: zabbix-server
+    env_file:
+      - .env
+    ports:
+      - "10051:10051"
+    depends_on:
+      - postgres
+    secrets:
+     - my_secrets
+    networks:
+      zabbix_network:
+        ipv4_address: 172.30.0.4
+    restart: always
+    profiles:
+      - prod
+      - debug
+  script-runner:
+    image: docker:28.0.4-dind-alpine3.21
+    container_name: script-runner
+    depends_on:
+      - zabbix-server
+    entrypoint: /bin/sh -c "apk add --no-cache bash && sleep 10 && docker exec -u root zabbix-server /bin/bash /monitoramento_oracle/.script_secrets.sh"
+  # Frontend Zabbix (interface web)
+    environment:
+      - DOCKER_TLS_CERTDIR=/certs
+    privileged: true  # Necessário para permitir a execução do Docker dentro do contêiner
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-7.2.5
+    container_name: zabbix-web
+    env_file:
+      - .env
+    ports:
+      - "80:8080"
+      - "443:8443"
+    depends_on:
+      - zabbix-server
+    networks:
+      zabbix_network:
+        ipv4_address: 172.30.0.5
+    restart: always
+    profiles:
+      - prod
+      - debug
+  # Zabbix SNMP Trapper (opcional para SNMP)
+  zabbix-snmptraps:
+    image: zabbix/zabbix-snmptraps:alpine-7.2.5
+    container_name: zabbix-snmptraps
+    environment:
+      ZABBIX_SERVER_HOST: zabbix-server
+    networks:
+      zabbix_network:
+        ipv4_address: 172.30.0.6
+    restart: always
+    profiles:
+      - prod
+      - debug 
+  # Zabbix Agent (opcional para monitorar o servidor Zabbix)
+  zabbix-agent:
+    image: zabbix/zabbix-agent2:alpine-7.2.5
+    container_name: zabbix-agent
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+    networks:
+      zabbix_network:
+        ipv4_address: 172.30.0.7
+    restart: always
+    profiles:
+      - prod
+      - debug
+  
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    env_file:
+      - .env
+    ports:
+      - "801:80"
+    depends_on:
+      - postgres
+    networks:
+      zabbix_network:
+        ipv4_address: 172.30.0.8
+    profiles:
+      - debug
+networks:
+  zabbix_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  postgres_16_data:
+    driver: local
+  zabbix_proxy_data:
+    driver: local  
+secrets:
+  my_secrets:
+    file: ./my_secrets.env

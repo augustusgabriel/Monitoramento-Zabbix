@@ -1,0 +1,8 @@
+*backup.sql
+.env
+Dockerfiles/zabbix-server/monitoramento_oracle/configs/odbc.ini
+Dockerfiles/zabbix-server/monitoramento_oracle/configs/tnsnames.ora
+Dockerfiles/zabbix-server/monitoramento_oracle/configs/odbcinst.ini
+.env.backup
+my_secrets.env
+env_secrets.env
